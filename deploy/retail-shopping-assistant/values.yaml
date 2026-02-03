@@ -1,0 +1,365 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Default values for retail-shopping-assistant
+# This is a YAML-formatted file.
+
+# -- Global settings
+global:
+  # -- Namespace for the deployment (will use Release.Namespace if not set)
+  namespace: ""
+  # -- Image pull secrets for private registries
+  # Uncomment and configure if pulling from nvcr.io or other private registries
+  # imagePullSecrets:
+  #   - name: nvidia-registry
+  imagePullSecrets: []
+  # -- Storage class for PVCs (use OpenShift default if empty)
+  storageClass: ""
+  # -- Storage class for ReadWriteMany volumes (e.g., ocs-storagecluster-cephfs)
+  storageClassRWX: ""
+
+# -- API Keys and Secrets
+secrets:
+  # -- Create secrets (set to false if using external secrets)
+  create: true
+  # -- NVIDIA NGC API key for LLM, embedding, and guardrails access
+  ngcApiKey: ""
+  # -- MinIO access key
+  minioAccessKey: "minioadmin"
+  # -- MinIO secret key (change for production!)
+  minioSecretKey: "minioadmin"
+  # -- PostgreSQL credentials (if using PostgreSQL instead of SQLite)
+  postgres:
+    enabled: false
+    username: "memoryuser"
+    password: ""
+
+# -- NIM Configuration
+nim:
+  # -- Use cloud NIMs (NVIDIA API Catalog) instead of local deployment
+  useCloudNims: true
+  # -- Cloud NIM endpoint base URL
+  cloudEndpoint: "https://integrate.api.nvidia.com/v1"
+  # -- LLM model name
+  llmModel: "meta/llama-3.1-70b-instruct"
+  # -- Text embedding model name
+  textEmbedModel: "nvidia/nv-embedqa-e5-v5"
+  # -- Image embedding model name
+  imageEmbedModel: "nvidia/nvclip"
+
+# -- Chain Server configuration
+chainServer:
+  enabled: true
+  # NOTE: Using 1 replica due to RWO storage limitation (EBS doesn't support RWX)
+  replicaCount: 1
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/retail-shopping/chain-server
+    tag: latest
+    pullPolicy: Always
+  # -- Use pre-built image from internal registry or build from source
+  build:
+    enabled: false
+    contextDir: ./chain_server
+  service:
+    port: 8009
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "2000m"
+  # -- Health check configuration
+  healthCheck:
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+  # -- Environment variable overrides
+  env:
+    CONFIG_OVERRIDE: "config-build.yaml"
+
+# -- Catalog Retriever configuration
+catalogRetriever:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/retail-shopping/catalog-retriever
+    tag: latest
+    pullPolicy: Always
+  build:
+    enabled: false
+    contextDir: ./catalog_retriever
+  service:
+    port: 8010
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+  healthCheck:
+    path: /health
+    initialDelaySeconds: 60
+    periodSeconds: 10
+  # -- Milvus configuration
+  milvus:
+    host: milvus
+    port: "19530"
+  env:
+    CONFIG_OVERRIDE: "config-build.yaml"
+
+# -- Memory Retriever configuration
+memoryRetriever:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/retail-shopping/memory-retriever
+    tag: latest
+    pullPolicy: Always
+  build:
+    enabled: false
+    contextDir: ./memory_retriever
+  service:
+    port: 8011
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  healthCheck:
+    path: /health
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  # -- Database configuration
+  database:
+    # -- Use PostgreSQL instead of SQLite (recommended for production)
+    usePostgres: false
+    # -- PostgreSQL connection URL (only if usePostgres is true)
+    postgresUrl: "postgresql://memoryuser:password@postgres:5432/memorydb"
+
+# -- Guardrails (Rails) configuration
+rails:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/retail-shopping/rails
+    tag: latest
+    pullPolicy: Always
+  build:
+    enabled: false
+    contextDir: ./guardrails
+  service:
+    port: 8012
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+  healthCheck:
+    # Rails doesn't have a health endpoint, use TCP check
+    tcpSocket: true
+    initialDelaySeconds: 30
+    periodSeconds: 10
+  env:
+    CONFIG_OVERRIDE: "config-build.yaml"
+
+# -- Frontend (React UI) configuration
+frontend:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/retail-shopping/frontend
+    tag: latest
+    pullPolicy: Always
+  build:
+    enabled: false
+    contextDir: ./ui
+  service:
+    port: 8080
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "200m"
+  healthCheck:
+    path: /health
+    initialDelaySeconds: 10
+    periodSeconds: 10
+
+# -- Nginx Reverse Proxy configuration
+nginx:
+  enabled: true
+  replicaCount: 1
+  image:
+    # Use unprivileged nginx for OpenShift/non-root compatibility
+    repository: nginxinc/nginx-unprivileged
+    tag: 1.25.3-alpine
+    pullPolicy: IfNotPresent
+  service:
+    # Port 8080 is used by unprivileged nginx (non-root cannot bind to ports < 1024)
+    port: 8080
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "200m"
+
+# -- etcd configuration (for Milvus metadata)
+etcd:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: quay.io/coreos/etcd
+    tag: v3.5.5
+    pullPolicy: IfNotPresent
+  service:
+    port: 2379
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  persistence:
+    enabled: true
+    size: 5Gi
+
+# -- MinIO configuration (for Milvus storage)
+minio:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: minio/minio
+    tag: RELEASE.2023-03-20T20-16-18Z
+    pullPolicy: IfNotPresent
+  service:
+    apiPort: 9000
+    consolePort: 9001
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  persistence:
+    enabled: true
+    size: 10Gi
+
+# -- Milvus Vector Database configuration
+milvus:
+  enabled: true
+  # -- Use Milvus Operator instead of standalone deployment
+  useOperator: false
+  # -- Use external managed Milvus (e.g., Zilliz Cloud)
+  external:
+    enabled: false
+    endpoint: ""
+  # -- Standalone Milvus configuration (only if not using operator or external)
+  standalone:
+    image:
+      repository: milvusdb/milvus
+      tag: v2.4.13-hotfix
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        memory: "2Gi"
+        cpu: "500m"
+      limits:
+        memory: "4Gi"
+        cpu: "2000m"
+  service:
+    port: 19530
+    metricsPort: 9091
+  persistence:
+    enabled: true
+    size: 20Gi
+
+# -- PostgreSQL configuration (optional, for Memory Retriever)
+postgresql:
+  enabled: false
+  image:
+    repository: postgres
+    tag: "15"
+    pullPolicy: IfNotPresent
+  service:
+    port: 5432
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  persistence:
+    enabled: true
+    size: 10Gi
+
+# -- Persistent Volume Claims
+persistence:
+  sharedData:
+    enabled: true
+    size: 10Gi
+    # NOTE: Changed from ReadWriteMany to ReadWriteOnce due to EBS storage limitation
+    # For RWX support, use EFS or CephFS storage class with global.storageClassRWX
+    accessMode: ReadWriteOnce
+
+# -- OpenShift Route configuration
+route:
+  enabled: true
+  # -- Hostname for the route (leave empty for auto-generated)
+  host: ""
+  # -- TLS configuration
+  tls:
+    enabled: true
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  # -- Route timeout for streaming responses
+  timeout: 5m
+  # -- Annotations for the route
+  annotations: {}
+
+# -- Network Policy configuration
+networkPolicy:
+  enabled: true
+
+# -- Pod Security Context (for OpenShift compatibility)
+securityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container Security Context
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# -- Service Account configuration
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# -- Pod annotations
+podAnnotations: {}
+
+# -- Node selector for all pods
+nodeSelector: {}
+
+# -- Tolerations for all pods
+tolerations: []
+
+# -- Affinity rules for all pods
+affinity: {}

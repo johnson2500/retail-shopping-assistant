@@ -13,24 +13,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#FROM node:18-alpine
-
-FROM nvcr.io/nvidia/base/ubuntu:22.04_20240212
-
-RUN apt update
-RUN apt install -y \
-    apt-transport-https \
-    curl \
-    software-properties-common
-
-RUN curl -sL https://deb.nodesource.com/setup_21.x | bash -
-RUN apt install -y nodejs
+# Stage 1: Build the React application
+FROM node:18-alpine AS builder
 
 WORKDIR /app
 
+# Copy package files first for better layer caching
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
 COPY . .
-RUN ln -s /app/shared/images /app/public/images
 
-RUN npm install
+# Build the production bundle
+RUN npm run build
 
-CMD ["npm", "run", "start"]
+# Stage 2: Serve with nginx (OpenShift compatible)
+FROM nginxinc/nginx-unprivileged:1.25.3-alpine
+
+# Copy built assets from builder stage
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# Copy custom nginx config for SPA routing
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 8080
+
+CMD ["nginx", "-g", "daemon off;"]
