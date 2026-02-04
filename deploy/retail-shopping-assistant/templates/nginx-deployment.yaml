@@ -45,6 +45,10 @@ spec:
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
               readOnly: true
+            # Mount shared volume for serving product images
+            - name: shared-data
+              mountPath: /app/shared
+              readOnly: true
             # Writable directories for nginx temp files and cache
             - name: nginx-cache
               mountPath: /var/cache/nginx
@@ -74,6 +78,14 @@ spec:
         - name: nginx-config
           configMap:
             name: {{ include "retail-shopping-assistant.nginx.name" . }}-config
+        # Shared data volume for serving product images
+        - name: shared-data
+          {{- if .Values.persistence.sharedData.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "retail-shopping-assistant.sharedDataPvc.name" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
         # emptyDir volumes for nginx writable directories (required for non-root)
         - name: nginx-cache
           emptyDir: {}
@@ -85,10 +97,8 @@ spec:
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+      {{- /* Pod affinity for RWO shared volume - forces pods to same node */ -}}
+      {{- include "retail-shopping-assistant.sharedVolumeAffinity" . | nindent 6 }}
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}

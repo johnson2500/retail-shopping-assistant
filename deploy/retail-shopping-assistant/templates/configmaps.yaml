@@ -297,6 +297,10 @@ data:
     }
 
     http {
+        # Include MIME types for proper content-type headers
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+
         # Temp file locations writable by non-root user
         client_body_temp_path /tmp/client_temp;
         proxy_temp_path /tmp/proxy_temp;
@@ -321,6 +325,13 @@ data:
                 access_log off;
                 return 200 'OK';
                 add_header Content-Type text/plain;
+            }
+
+            # Serve product images directly from shared volume
+            location /images/ {
+                alias /app/shared/images/;
+                expires 1d;
+                add_header Cache-Control "public";
             }
             
             # Frontend (includes WebSocket directives)

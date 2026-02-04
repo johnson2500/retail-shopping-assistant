@@ -41,8 +41,8 @@ spec:
               containerPort: {{ .Values.frontend.service.port }}
               protocol: TCP
           volumeMounts:
-            - name: shared-images
-              mountPath: /app/shared/images
+            - name: shared-data
+              mountPath: /app/shared
               readOnly: true
           resources:
             {{- toYaml .Values.frontend.resources | nindent 12 }}
@@ -63,7 +63,7 @@ spec:
             periodSeconds: {{ .Values.frontend.healthCheck.periodSeconds }}
             timeoutSeconds: 5
       volumes:
-        - name: shared-images
+        - name: shared-data
           {{- if .Values.persistence.sharedData.enabled }}
           persistentVolumeClaim:
             claimName: {{ include "retail-shopping-assistant.sharedDataPvc.name" . }}
