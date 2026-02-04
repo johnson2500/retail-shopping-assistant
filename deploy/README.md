@@ -151,7 +151,8 @@ oc start-build frontend --from-dir=./ui --follow
 ```bash
 helm install retail-shopping ./deploy/retail-shopping-assistant \
   --namespace retail-shopping \
-  --set secrets.create=false
+  --set secrets.create=false \
+  --set secrets.ngcApiKey="some_real_key"
 ```
 
 Or with values file:
